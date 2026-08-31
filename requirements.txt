@@ -1,0 +1,8 @@
+fastapi
+langchain
+langgraph
+langchain_community
+langchain-groq
+langchain-google-genai
+langchain-ollama
+python-dotenv
