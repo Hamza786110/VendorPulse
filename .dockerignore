@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+.venv/
+.env
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentation
+README.md
+
+# Temporary files
+*.tmp
+*.temp
