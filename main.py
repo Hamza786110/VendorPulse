@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from motor.motor_asyncio import AsyncIOMotorClient
-
+from auth.routes import router as auth_router
 load_dotenv()
 
 MONGODB_URI = os.getenv("MONGODB_URI")
@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ContractGuard API", lifespan=lifespan)
-
+app.include_router(auth_router)
 
 @app.get("/")
 async def root():
