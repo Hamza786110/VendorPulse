@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from datetime import datetime, timezone
 from auth.models import UserSignup, UserSignin, Token
 from auth.utils import hash_password, verify_password, create_access_token
-from auth.dependencies import get_db
+from auth.dependencies import get_current_user, get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -31,3 +31,11 @@ async def signin(user: UserSignin, db=Depends(get_db)):
 
     token = create_access_token({"sub": str(db_user["_id"])})
     return Token(access_token=token)
+
+@router.get("/me")
+async def read_current_user(current_user=Depends(get_current_user)):
+    return {
+        "id": str(current_user["_id"]),
+        "email": current_user["email"],
+        "full_name": current_user.get("full_name"),
+    }

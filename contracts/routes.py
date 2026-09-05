@@ -105,3 +105,14 @@ async def get_contract(
 
     contract["_id"] = str(contract["_id"])
     return contract
+
+@router.get("")
+async def list_contracts(
+    current_user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    cursor = db.contracts.find({"uploaded_by": str(current_user["_id"])})
+    contracts = await cursor.to_list(length=100)
+    for c in contracts:
+        c["_id"] = str(c["_id"])
+    return contracts
