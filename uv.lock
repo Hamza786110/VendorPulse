@@ -1215,6 +1215,19 @@ wheels = [
 ]
 
 [[package]]
+name = "mailtrap"
+version = "2.10.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f8/f7/4f1b08e12337ee37f740711d4f8d257d530a8c81293b83a49772967a5cfc/mailtrap-2.10.0.tar.gz", hash = "sha256:69cc00ba4d63d0cc070e8102de6f9cbf763cb79fac2c3ad41de8287c4bebe584", size = 39913, upload-time = "2026-08-31T19:54:19.478Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/76/37/3e61ebbbead7944b7efcd0c0231481327d84f6c683ce2d8cfe74dfb85171/mailtrap-2.10.0-py3-none-any.whl", hash = "sha256:020bdc6413e666a885f9e83f4d3e8dfcdd0fccbb6ebef4c9c53011ae4154732c", size = 62093, upload-time = "2026-08-31T19:54:18.454Z" },
+]
+
+[[package]]
 name = "markupsafe"
 version = "3.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -2465,6 +2478,7 @@ dependencies = [
     { name = "langchain-ollama" },
     { name = "langgraph" },
     { name = "load-dotenv" },
+    { name = "mailtrap" },
     { name = "motor" },
     { name = "pdfplumber" },
     { name = "pydantic", extra = ["email"] },
@@ -2488,6 +2502,7 @@ requires-dist = [
     { name = "langchain-ollama", specifier = ">=1.1.0" },
     { name = "langgraph", specifier = ">=1.2.11" },
     { name = "load-dotenv", specifier = ">=0.1.0" },
+    { name = "mailtrap", specifier = ">=2.10.0" },
     { name = "motor", specifier = ">=3.7.1" },
     { name = "pdfplumber", specifier = ">=0.11.0" },
     { name = "pydantic", extras = ["email"], specifier = ">=2.13.5" },

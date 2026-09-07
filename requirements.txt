@@ -6,3 +6,4 @@ langchain-groq
 langchain-google-genai
 langchain-ollama
 python-dotenv
+mailtrap
