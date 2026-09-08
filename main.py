@@ -2,11 +2,11 @@ import os
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
+load_dotenv()
 from fastapi import FastAPI
 from motor.motor_asyncio import AsyncIOMotorClient
 from auth.routes import router as auth_router
 from contracts.routes import router as contracts_router
-load_dotenv()
 
 MONGODB_URI = os.getenv("MONGODB_URI")
 MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "contractguard")
