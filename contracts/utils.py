@@ -24,7 +24,7 @@ async def save_upload(file: UploadFile) -> tuple[str, str]:
     Saves the uploaded file to disk under a UUID-prefixed name to avoid
     collisions. Returns (contract_id, saved_file_path).
     """
-    ext = Path(file.filename).suffix.lower() # type
+    ext = Path(file.filename).suffix.lower() # type:ignore
     if ext not in ALLOWED_EXTENSIONS:
         raise ValueError(f"Unsupported file type '{ext}'. Allowed: {ALLOWED_EXTENSIONS}")
 
