@@ -5,4 +5,6 @@ USER airflow
 ENV AIRFLOW__CORE__EXECUTOR=SequentialExecutor
 ENV AIRFLOW__CORE__LOAD_EXAMPLES=false
 
+RUN pip install --no-cache-dir pymongo
+
 CMD ["standalone"]

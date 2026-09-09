@@ -14,7 +14,7 @@ import streamlit as st
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
 
-st.set_page_config(page_title="ContractGuard Demo", page_icon="📄", layout="centered")
+st.set_page_config(page_title="ContractGuard Demo", layout="centered")
 
 # --- Session state defaults ---
 if "token" not in st.session_state:
@@ -58,7 +58,7 @@ if reset_token:
 # 2. AUTH — Sign In / Sign Up / Forgot Password
 # =========================================================
 if not st.session_state.token:
-    st.title("📄 ContractGuard")
+    st.title(" ContractGuard")
     st.caption("Sign in to upload and extract vendor contract terms.")
 
     tab_signin, tab_signup, tab_forgot = st.tabs(["Sign In", "Sign Up", "Forgot Password"])
@@ -149,7 +149,7 @@ with st.sidebar:
         st.session_state.full_name = None
         st.rerun()
 
-st.title("📄 ContractGuard — Contract Extraction Demo")
+st.title("ContractGuard — Contract Extraction Demo")
 st.caption("Upload a vendor contract and let Groq pull out the key renewal terms.")
 
 uploaded_file = st.file_uploader("Upload a contract", type=["pdf", "docx"])

@@ -68,6 +68,9 @@ class ContractDocument(BaseModel):
     raw_text: Optional[str] = None
     extracted: Optional[ExtractedContractFields] = None
     extraction_error: Optional[str] = None
+    flagged: bool = False
+    flag_reason: Optional[str] = None
+    flagged_at: Optional[datetime] = None
 
     class Config:
         populate_by_name = True
