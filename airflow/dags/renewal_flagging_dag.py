@@ -60,7 +60,17 @@ def renewal_flagging_dag():
 
             if renewal_date_raw is None:
                 continue
-
+            try:
+                if isinstance(renewal_date_raw, datetime):
+                    renewal_date = renewal_date_raw.date()
+                elif isinstance(renewal_date_raw, date):
+                    renewal_date = renewal_date_raw
+                else:
+                    renewal_date = date.fromisoformat(str(renewal_date_raw))
+            except (ValueError, TypeError) as e:
+                print(f"Skipping contract {contract['_id']}: unparseable renewal_date "
+                    f"{renewal_date_raw!r} ({e})")
+                continue
             # MongoDB stores dates as datetime; normalize to date for comparison
             if isinstance(renewal_date_raw, datetime):
                 renewal_date = renewal_date_raw.date()
