@@ -44,8 +44,6 @@ def renewal_flagging_dag():
 
         today = date.today()
         threshold_date = today + timedelta(days=FLAG_THRESHOLD_DAYS)
-
-        # Only look at contracts that actually have extracted fields to check
         cursor = contracts.find({"extracted.renewal_date": {"$ne": None}})
 
         flagged_count = 0
@@ -72,23 +70,24 @@ def renewal_flagging_dag():
                     f"{renewal_date_raw!r} ({e})")
                 continue
             # MongoDB stores dates as datetime; normalize to date for comparison
-            if isinstance(renewal_date_raw, datetime):
-                renewal_date = renewal_date_raw.date()
-            elif isinstance(renewal_date_raw, date):
-                renewal_date = renewal_date_raw
-            else:
-                # Stored as ISO string, e.g. "2026-10-05"
-                renewal_date = date.fromisoformat(str(renewal_date_raw))
+            try:
+                if isinstance(renewal_date_raw, datetime):
+                    renewal_date = renewal_date_raw.date()
+                elif isinstance(renewal_date_raw, date):
+                    renewal_date = renewal_date_raw
+                else:
+                    renewal_date = date.fromisoformat(str(renewal_date_raw))
+            except (ValueError, TypeError) as e:
+                print(f"Skipping contract {contract['_id']}: unparseable renewal_date "
+                    f"{renewal_date_raw!r} ({e})")
+                continue
 
             reasons = []
 
-            # --- Check 1: renewal date itself is approaching ---
             if today <= renewal_date <= threshold_date:
                 days_out = (renewal_date - today).days
                 reasons.append(f"Renews in {days_out} day(s)")
 
-            # --- Check 2: cancellation deadline is approaching ---
-            # Only meaningful if the contract auto-renews and we know the window
             if auto_renew and cancellation_window_days is not None:
                 cancellation_deadline = renewal_date - timedelta(days=cancellation_window_days)
                 if today <= cancellation_deadline <= threshold_date:
@@ -108,9 +107,6 @@ def renewal_flagging_dag():
                 )
                 flagged_count += 1
             else:
-                # Renewal date exists but is outside the window (either too far
-                # in the future, or already in the past) -> make sure it's not
-                # left flagged from a previous run.
                 if contract.get("flagged"):
                     contracts.update_one(
                         {"_id": contract["_id"]},
