@@ -1,15 +1,31 @@
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
+import os
+from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
+from langchain_experimental.text_splitter import SemanticChunker
+from dotenv import load_dotenv
+load_dotenv()
+
+def get_chat_model() -> ChatGoogleGenerativeAI:
+    return ChatGoogleGenerativeAI(model="gemini-3.8-flash")
 
 
-def chunk_documents(docs: list[Document],chunk_size: int = 800,chunk_overlap: int = 150,) -> list[Document]:
-    """
-    Splits a list of Documents into smaller chunked Documents,
-    preserving original metadata (e.g. page number, source file).
-    """
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
+def get_embedding_model() -> GoogleGenerativeAIEmbeddings:
+    return GoogleGenerativeAIEmbeddings(
+        model="models/gemini-embedding-001",
+        google_api_key=os.environ.get("GOOGLE_API_KEY") #type:ignore
     )
-    return splitter.split_documents(docs)
 
+
+def chunk_documents(docs: list[Document]) -> list[Document]:
+    """
+    Splits Documents into chunks at points where sentence-level
+    meaning shifts, using cosine similarity between embeddings.
+    """
+    embeddings = get_embedding_model()
+
+    splitter = SemanticChunker(
+        embeddings=embeddings,
+        breakpoint_threshold_type="percentile",
+    )
+
+    return splitter.split_documents(docs)

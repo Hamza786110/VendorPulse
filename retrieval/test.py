@@ -6,8 +6,9 @@ docs=load_document(r"C:\Users\Hamza\Downloads\Fake_Vendor_Agreement_ContractGuar
 print(len(docs))
 # print(docs[0].page_content)
 print("\n\n\n")
-chunked_docs=chunk_documents(docs, chunk_size=800, chunk_overlap=150)
+chunked_docs=chunk_documents(docs=docs)
 print(len(chunked_docs))
+print(type(chunked_docs))
 # print(chunked_docs[0].page_content)
 
 for chnk in chunked_docs:
