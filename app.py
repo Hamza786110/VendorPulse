@@ -180,7 +180,7 @@ if uploaded_file and st.button("Upload & Extract"):
     st.table(
         {
             "Field": [
-                "Vendor",
+                "Vendor",   
                 "Renewal Date",
                 "Auto-Renew",
                 "Cancellation Window (days)",

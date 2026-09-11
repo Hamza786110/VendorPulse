@@ -7,3 +7,6 @@ langchain-google-genai
 langchain-ollama
 python-dotenv
 mailtrap
+pypdf
+pymupdf
+docx2txt

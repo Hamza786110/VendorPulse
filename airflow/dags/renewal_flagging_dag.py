@@ -1,18 +1,3 @@
-"""
-airflow/dags/renewal_flagging_dag.py
-
-Nightly job that scans every contract in MongoDB and flags:
-  1. Contracts whose renewal_date is within FLAG_THRESHOLD_DAYS of today
-  2. Contracts whose cancellation deadline (renewal_date - cancellation_window_days)
-     is within FLAG_THRESHOLD_DAYS of today, when auto_renew is True
-
-Writes back: flagged (bool), flag_reason (str | None), flagged_at (datetime | None)
-
-This DAG does NOT upload, extract, or serve anything. It only reads contracts
-that were already uploaded via FastAPI, and writes flags for the API/frontend
-to surface later.
-"""
-
 import os
 from datetime import datetime, date, timedelta
 
