@@ -28,4 +28,5 @@ dependencies = [
     "pypdf>=6.18.0",
     "pymupdf>=1.28.2",
     "docx2txt>=0.9",
+    "langchain-experimental>=0.4.2",
 ]

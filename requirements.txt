@@ -10,3 +10,4 @@ mailtrap
 pypdf
 pymupdf
 docx2txt
+langchain_experimental
