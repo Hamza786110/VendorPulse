@@ -7,4 +7,4 @@ ENV AIRFLOW__CORE__LOAD_EXAMPLES=false
 
 RUN pip install --no-cache-dir pymongo
 
-CMD ["standalone"]
+CMD ["airflow","standalone"]
