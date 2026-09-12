@@ -18,7 +18,3 @@ def load_document(file_path: str) -> list[Document]:
         raise ValueError(f"Unsupported file type for RAG ingestion: {ext}")
 
     return loader.load()
-
-# docs=load_document(r"C:\Users\Hamza\Downloads\Fake_Vendor_Agreement_ContractGuard.pdf")
-# print(len(docs))
-# print(docs[0].page_content)
