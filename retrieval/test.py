@@ -6,6 +6,8 @@ docs=load_document(r"C:\Users\Hamza\Downloads\Fake_Vendor_Agreement_ContractGuar
 print(len(docs))
 # print(docs[0].page_content)
 print("\n\n\n")
+print(docs)
+print("\n\n\n")
 chunked_docs=chunk_documents(docs=docs)
 print(len(chunked_docs))
 print(type(chunked_docs))
