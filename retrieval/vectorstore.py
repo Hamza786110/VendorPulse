@@ -1,7 +1,7 @@
 import chromadb
 from langchain_core.documents import Document
 
-from embeddings import embed_chunks, embed_query
+from retrieval.embeddings import embed_chunks, embed_query
 
 CHROMA_PERSIST_DIR = "./chroma_db"
 COLLECTION_NAME = "contracts"
@@ -22,12 +22,6 @@ def _clean_metadata(meta: dict) -> dict:
 
 
 def store_chunks(chunks: list[Document], contract_id: str) -> list[str]:
-    """
-    1. Calls embeddings.py to turn chunk text into vectors
-    2. Stores vectors + original text + metadata in Chroma
-    Explicit ids mean re-running this for the same contract_id
-    overwrites instead of duplicating.
-    """
     vectors = embed_chunks(chunks)  # <-- the embedding step, from the other file
     texts = [c.page_content for c in chunks]
     ids=[]

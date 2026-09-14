@@ -2,7 +2,6 @@ from langchain_core.documents import Document
 import os
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_experimental.text_splitter import SemanticChunker
-from embeddings import get_embedding_model
 from dotenv import load_dotenv
 load_dotenv()
 
