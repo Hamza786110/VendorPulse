@@ -1,36 +1,43 @@
-"""
-contracts/routes.py
-
-Endpoints:
-  POST /contracts/upload          -> upload a contract file, extract raw text, save to Mongo
-  POST /contracts/{id}/extract    -> run the Groq/LangChain extraction chain on a stored contract
-  GET  /contracts/{id}            -> fetch a contract (incl. extracted fields once ready)
-
-Adjust the `get_current_user` import below to match wherever Day 3's
-auth dependency actually lives (likely `auth.dependencies`).
-"""
-
 from datetime import datetime
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks
 from bson import ObjectId
 
 from contracts.models import ContractDocument, ContractStatus, ExtractedContractFields
 from contracts.utils import save_upload, extract_text_from_file
 from contracts.chains import extract_contract_fields
 
+from retrieval.loaders import load_document
+from retrieval.chunking import chunk_documents
+from retrieval.vectorstore import store_chunks, query_contract
+
 from auth.dependencies import get_current_user, get_db  # auth + db dependencies
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
 
 
+def _ingest_to_vectorstore(file_path: str, contract_id: str) -> None:
+    """
+    Runs after the upload response has already been sent.
+    """
+    try:
+        docs = load_document(file_path)
+        chunks = chunk_documents(docs)
+        store_chunks(chunks, contract_id)
+    except Exception as e:
+        print(f"[vectorstore] failed to ingest contract {contract_id}: {e}")
+
+
 @router.post("/upload")
 async def upload_contract(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user=Depends(get_current_user),
     db=Depends(get_db),
 ):
     try:
-        contract_id, file_path = await save_upload(file)
+        # save_upload's returned id is just a filename-collision-avoidance
+        # rest of the API (and the vectorstore) key on.
+        _file_uuid, file_path = await save_upload(file)
         raw_text = extract_text_from_file(file_path)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -44,9 +51,12 @@ async def upload_contract(
     )
 
     result = await db.contracts.insert_one(doc.model_dump(exclude={"id"}, by_alias=True))
+    contract_id = str(result.inserted_id)
+
+    background_tasks.add_task(_ingest_to_vectorstore, file_path, contract_id)
 
     return {
-        "contract_id": str(result.inserted_id),
+        "contract_id": contract_id,
         "filename": file.filename,
         "status": ContractStatus.UPLOADED,
     }
@@ -105,6 +115,41 @@ async def get_contract(
 
     contract["_id"] = str(contract["_id"])
     return contract
+
+
+@router.get("/{contract_id}/ask")
+async def ask_contract(
+    contract_id: str,
+    question: str,
+    current_user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """
+    Semantic search over one contract's stored chunks. Returns the top
+    matching passages for `question`, not a generated answer — this is a
+    retrieval endpoint, not a chat endpoint.
+    """
+    contract = await db.contracts.find_one({"_id": ObjectId(contract_id)})
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    if contract.get("uploaded_by") != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Not authorized to search this contract")
+
+    results = query_contract(contract_id, question)
+
+    documents = results.get("documents", [[]])[0]
+    distances = results.get("distances", [[]])[0]
+    matches = [{"text": text, "distance": distance} for text, distance in zip(documents, distances)]
+
+    if not matches:
+        raise HTTPException(
+            status_code=404,
+            detail="No indexed chunks found for this contract yet — it may still be processing.",
+        )
+
+    return {"contract_id": contract_id, "question": question, "matches": matches}
+
 
 @router.get("")
 async def list_contracts(
