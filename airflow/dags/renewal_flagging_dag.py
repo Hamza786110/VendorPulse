@@ -1,6 +1,6 @@
 import os
 from datetime import datetime, date, timedelta
-
+from pymongo import MongoClient
 from airflow.decorators import dag, task #type:ignore
 
 FLAG_THRESHOLD_DAYS = 30
@@ -19,7 +19,7 @@ def renewal_flagging_dag():
         # Imported inside the task so DAG parsing (which happens on every
         # scheduler heartbeat) never has to import pymongo unless the task
         # actually runs.
-        from pymongo import MongoClient
+        
 
         mongo_uri = os.environ["MONGODB_URI"]
         client = MongoClient(mongo_uri)

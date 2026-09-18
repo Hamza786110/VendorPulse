@@ -1,8 +1,3 @@
-"""
-contracts/models.py
-
-"""
-
 from datetime import datetime, date
 from typing import Optional
 from pydantic import BaseModel, Field
@@ -71,6 +66,8 @@ class ContractDocument(BaseModel):
     flagged: bool = False
     flag_reason: Optional[str] = None
     flagged_at: Optional[datetime] = None
+    alert_sent: bool = False
+    previous_versions: list[dict] = Field(default_factory=list)
 
     class Config:
         populate_by_name = True
