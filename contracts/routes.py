@@ -5,11 +5,11 @@ from bson import ObjectId
 from contracts.models import ContractDocument, ContractStatus, ExtractedContractFields
 from contracts.utils import save_upload, extract_text_from_file
 from contracts.chains import extract_contract_fields
+from contracts.notifications import notify_extraction_issue, notify_contract_updated, diff_extracted_fields
 
 from retrieval.loaders import load_document
 from retrieval.chunking import chunk_documents
-from retrieval.vectorstore import store_chunks, query_contract
-
+from retrieval.vectorstore import store_chunks, query_contract,delete_contract_chunks
 from auth.dependencies import get_current_user, get_db  # auth + db dependencies
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
@@ -65,6 +65,7 @@ async def upload_contract(
 @router.post("/{contract_id}/extract")
 async def extract_contract(
     contract_id: str,
+    background_tasks: BackgroundTasks ,
     current_user=Depends(get_current_user),
     db=Depends(get_db),
 ):
@@ -99,7 +100,14 @@ async def extract_contract(
             }
         },
     )
-
+    if extracted.confidence_notes:
+        background_tasks.add_task(
+            notify_extraction_issue,
+            current_user["email"],
+            contract["filename"],
+            extracted.confidence_notes,
+            False,
+        )
     return {"contract_id": contract_id, "status": ContractStatus.EXTRACTED, "extracted": extracted}
 
 
@@ -161,3 +169,14 @@ async def list_contracts(
     for c in contracts:
         c["_id"] = str(c["_id"])
     return contracts
+
+@router.get("/stats")
+async def contract_stats(
+    current_user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+
+    # Dashboard numbers: how many contracts the user has uploaded, broken
+    # down by processing status, plus how many are currently flagged. so it's cheap and exact.
+\
+    return await get_contract_stats(db, str(current_user["_id"]))
