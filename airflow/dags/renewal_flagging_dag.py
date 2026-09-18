@@ -91,6 +91,17 @@ def renewal_flagging_dag():
                     },
                 )
                 flagged_count += 1
+                if not contract.get("alert_sent"):
+                    owner_email = get_owner_email(contract.get("uploaded_by", ""))
+                if owner_email:
+                    sent = notify_contract_flagged(
+                        owner_email, contract.get("filename", "a contract"), flag_reason
+                    )
+                if sent:
+                    contracts.update_one(
+                        {"_id": contract["_id"]}, {"$set": {"alert_sent": True}}
+                    )
+                    alerts_sent += 1
             else:
                 if contract.get("flagged"):
                     contracts.update_one(
