@@ -1,4 +1,5 @@
 from datetime import datetime
+import os
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks
 from bson import ObjectId
 
@@ -178,5 +179,118 @@ async def contract_stats(
 
     # Dashboard numbers: how many contracts the user has uploaded, broken
     # down by processing status, plus how many are currently flagged. so it's cheap and exact.
-\
+
     return await get_contract_stats(db, str(current_user["_id"]))
+
+@router.post("/{contract_id}/replace")
+async def replace_contract(
+    contract_id: str,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    current_user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    contract = await db.contracts.find_one({"_id": ObjectId(contract_id)})
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    if contract.get("uploaded_by") != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Not authorized to update this contract")
+ 
+    old_file_path = contract.get("file_path")
+    old_extracted = contract.get("extracted")
+ 
+    try:
+        _file_uuid, new_file_path = await save_upload(file)
+        raw_text = extract_text_from_file(new_file_path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+ 
+    previous_versions = contract.get("previous_versions", [])
+    previous_versions.append(
+        {
+            "filename": contract.get("filename"),
+            "file_path": old_file_path,
+            "extracted": old_extracted,
+            "replaced_at": datetime.utcnow().isoformat(),
+        }
+    )
+ 
+    # Reset flagged/alert_sent: the old flag state was about the old
+    # content. The next DAG run should re-evaluate the new content fresh,
+    # not stay silent because the old version already triggered an alert.
+    await db.contracts.update_one(
+        {"_id": ObjectId(contract_id)},
+        {
+            "$set": {
+                "filename": file.filename,
+                "file_path": new_file_path,
+                "raw_text": raw_text,
+                "status": ContractStatus.EXTRACTING,
+                "extracted": None,
+                "extraction_error": None,
+                "flagged": False,
+                "flag_reason": None,
+                "flagged_at": None,
+                "alert_sent": False,
+                "previous_versions": previous_versions,
+            }
+        },
+    )
+ 
+    # Old vectorstore chunks belong to the old file's content
+    try:
+        delete_contract_chunks(contract_id)
+    except Exception as e:
+        print(f"[vectorstore] failed to clear old chunks for {contract_id}: {e}")
+    background_tasks.add_task(_ingest_to_vectorstore, new_file_path, contract_id)
+ 
+    try:
+        extracted: ExtractedContractFields = extract_contract_fields(raw_text)
+    except Exception as e:
+        await db.contracts.update_one(
+            {"_id": ObjectId(contract_id)},
+            {"$set": {"status": ContractStatus.EXTRACTION_FAILED, "extraction_error": str(e)}},
+        )
+        background_tasks.add_task(
+            notify_extraction_issue, current_user["email"], file.filename, str(e), True
+        )
+        raise HTTPException(status_code=500, detail=f"Extraction failed on the updated file: {e}")
+ 
+    await db.contracts.update_one(
+        {"_id": ObjectId(contract_id)},
+        {
+            "$set": {
+                "status": ContractStatus.EXTRACTED,
+                "extracted": extracted.model_dump(mode="json"),
+                "extracted_at": datetime.utcnow().isoformat(),
+            }
+        },
+    )
+ 
+    diff_lines = diff_extracted_fields(old_extracted, extracted.model_dump(mode="json"))
+    background_tasks.add_task(
+        notify_contract_updated, current_user["email"], file.filename, diff_lines
+    )
+    if extracted.confidence_notes:
+        background_tasks.add_task(
+            notify_extraction_issue,
+            current_user["email"],
+            file.filename,
+            extracted.confidence_notes,
+            False,
+        )
+ 
+    # Best-effort cleanup of the old file on disk. Not fatal if it fails —
+    # the record itself is already fully switched over to the new file.
+    if old_file_path and old_file_path != new_file_path:
+        try:
+            os.remove(old_file_path)
+        except OSError:
+            pass
+ 
+    return {
+        "contract_id": contract_id,
+        "status": ContractStatus.EXTRACTED,
+        "extracted": extracted,
+        "changes": diff_lines,
+    }
