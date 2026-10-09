@@ -22,3 +22,5 @@ services:
 
 volumes:
   airflow-data:
+  chroma-data:
+  upload-data:
