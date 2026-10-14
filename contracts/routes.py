@@ -7,7 +7,7 @@ from bson.errors import InvalidId
 from contracts.models import ContractDocument, ContractStatus, ExtractedContractFields
 from contracts.utils import save_upload, extract_text_from_file
 from contracts.chains import extract_contract_fields
-from contracts.stats import get_contract_stats
+# from contracts.stats import get_contract_stats
 from contracts.notifications import notify_extraction_issue, notify_contract_updated, diff_extracted_fields
 
 from retrieval.loaders import load_document

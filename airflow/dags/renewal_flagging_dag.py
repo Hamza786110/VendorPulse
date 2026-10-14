@@ -51,8 +51,7 @@ def renewal_flagging_dag():
                 else:
                     renewal_date = date.fromisoformat(str(renewal_date_raw))
             except (ValueError, TypeError) as e:
-                print(f"Skipping contract {contract['_id']}: unparseable renewal_date "
-                    f"{renewal_date_raw!r} ({e})")
+                print(f"Skipping contract {contract['_id']}: unparseable renewal_date "f"{renewal_date_raw!r} ({e})")
                 continue
             # MongoDB stores dates as datetime; normalize to date for comparison
             try:
@@ -121,4 +120,4 @@ def renewal_flagging_dag():
     flag_upcoming_renewals()
 
 
-renewal_flagging_dag()
+renewal_flagging_dag() 
