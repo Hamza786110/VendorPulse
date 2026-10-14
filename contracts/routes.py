@@ -2,10 +2,12 @@ from datetime import datetime
 import os
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks
 from bson import ObjectId
+from bson.errors import InvalidId
 
 from contracts.models import ContractDocument, ContractStatus, ExtractedContractFields
 from contracts.utils import save_upload, extract_text_from_file
 from contracts.chains import extract_contract_fields
+from contracts.stats import get_contract_stats
 from contracts.notifications import notify_extraction_issue, notify_contract_updated, diff_extracted_fields
 
 from retrieval.loaders import load_document
@@ -14,6 +16,18 @@ from retrieval.vectorstore import store_chunks, query_contract,delete_contract_c
 from auth.dependencies import get_current_user, get_db  # auth + db dependencies
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
+
+
+async def _get_owned_contract(db, contract_id: str, current_user) -> dict:
+    """Valid ObjectId + belongs to the logged-in user, else a clean 400/404."""
+    try:
+        oid = ObjectId(contract_id)
+    except (InvalidId, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid contract id")
+    contract = await db.contracts.find_one({"_id": oid})
+    if not contract or contract.get("uploaded_by") != str(current_user["_id"]):
+        raise HTTPException(status_code=404, detail="Contract not found")
+    return contract
 
 
 def _ingest_to_vectorstore(file_path: str, contract_id: str) -> None:
@@ -63,6 +77,30 @@ async def upload_contract(
     }
 
 
+@router.get("")
+async def list_contracts(
+    current_user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    cursor = db.contracts.find({"uploaded_by": str(current_user["_id"])})
+    contracts = await cursor.to_list(length=100)
+    for c in contracts:
+        c["_id"] = str(c["_id"])
+    return contracts
+
+
+@router.get("/stats")
+async def contract_stats(
+    current_user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+
+    # Dashboard numbers: how many contracts the user has uploaded, broken
+    # down by processing status, plus how many are currently flagged. so it's cheap and exact.
+
+    return await get_contract_stats(db, str(current_user["_id"]))
+
+
 @router.post("/{contract_id}/extract")
 async def extract_contract(
     contract_id: str,
@@ -70,9 +108,7 @@ async def extract_contract(
     current_user=Depends(get_current_user),
     db=Depends(get_db),
 ):
-    contract = await db.contracts.find_one({"_id": ObjectId(contract_id)})
-    if not contract:
-        raise HTTPException(status_code=404, detail="Contract not found")
+    contract = await _get_owned_contract(db, contract_id, current_user)
 
     if not contract.get("raw_text"):
         raise HTTPException(status_code=400, detail="Contract has no extracted text to analyze")
@@ -118,9 +154,7 @@ async def get_contract(
     current_user=Depends(get_current_user),
     db=Depends(get_db),
 ):
-    contract = await db.contracts.find_one({"_id": ObjectId(contract_id)})
-    if not contract:
-        raise HTTPException(status_code=404, detail="Contract not found")
+    contract = await _get_owned_contract(db, contract_id, current_user)
 
     contract["_id"] = str(contract["_id"])
     return contract
@@ -138,12 +172,7 @@ async def ask_contract(
     matching passages for `question`, not a generated answer — this is a
     retrieval endpoint, not a chat endpoint.
     """
-    contract = await db.contracts.find_one({"_id": ObjectId(contract_id)})
-    if not contract:
-        raise HTTPException(status_code=404, detail="Contract not found")
-
-    if contract.get("uploaded_by") != str(current_user["_id"]):
-        raise HTTPException(status_code=403, detail="Not authorized to search this contract")
+    await _get_owned_contract(db, contract_id, current_user)
 
     results = query_contract(contract_id, question)
 
@@ -160,27 +189,7 @@ async def ask_contract(
     return {"contract_id": contract_id, "question": question, "matches": matches}
 
 
-@router.get("")
-async def list_contracts(
-    current_user=Depends(get_current_user),
-    db=Depends(get_db),
-):
-    cursor = db.contracts.find({"uploaded_by": str(current_user["_id"])})
-    contracts = await cursor.to_list(length=100)
-    for c in contracts:
-        c["_id"] = str(c["_id"])
-    return contracts
 
-@router.get("/stats")
-async def contract_stats(
-    current_user=Depends(get_current_user),
-    db=Depends(get_db),
-):
-
-    # Dashboard numbers: how many contracts the user has uploaded, broken
-    # down by processing status, plus how many are currently flagged. so it's cheap and exact.
-
-    return await get_contract_stats(db, str(current_user["_id"]))
 
 @router.post("/{contract_id}/replace")
 async def replace_contract(
@@ -190,11 +199,7 @@ async def replace_contract(
     current_user=Depends(get_current_user),
     db=Depends(get_db),
 ):
-    contract = await db.contracts.find_one({"_id": ObjectId(contract_id)})
-    if not contract:
-        raise HTTPException(status_code=404, detail="Contract not found")
-    if contract.get("uploaded_by") != str(current_user["_id"]):
-        raise HTTPException(status_code=403, detail="Not authorized to update this contract")
+    contract = await _get_owned_contract(db, contract_id, current_user)
  
     old_file_path = contract.get("file_path")
     old_extracted = contract.get("extracted")
