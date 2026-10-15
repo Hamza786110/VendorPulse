@@ -6,6 +6,12 @@ services:
       - "8001:8000"
     env_file:
       - .env
+    environment:
+      UPLOAD_DIR: /data/uploads
+      CHROMA_PERSIST_DIR: /data/chroma_db
+    volumes:
+      - upload-data:/data/uploads
+      - chroma-data:/data/chroma_db
     restart: unless-stopped
 
   airflow:
@@ -15,8 +21,13 @@ services:
       - "8080:8080"
     env_file:
       - .env
+    environment:
+      PYTHONPATH: /opt/airflow/project
     volumes:
       - ./airflow/dags:/opt/airflow/dags
+      # reuse the existing email code instead of copying it
+      - ./auth:/opt/airflow/project/auth:ro
+      - ./contracts:/opt/airflow/project/contracts:ro
       - airflow-data:/opt/airflow
     restart: unless-stopped
 

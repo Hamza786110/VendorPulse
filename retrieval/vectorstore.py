@@ -1,9 +1,10 @@
-import chromadb
-from langchain_core.documents import Document
+import os
+import chromadb #type:ignore
+from langchain_core.documents import Document #type:ignore
 
 from retrieval.embeddings import embed_chunks, embed_query
 
-CHROMA_PERSIST_DIR = "./chroma_db"
+CHROMA_PERSIST_DIR = os.environ.get("CHROMA_PERSIST_DIR", "./chroma_db")
 COLLECTION_NAME = "contracts"
 
 

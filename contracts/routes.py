@@ -1,13 +1,13 @@
 from datetime import datetime
 import os
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks
-from bson import ObjectId
-from bson.errors import InvalidId
+import re
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks #type: ignore
+from bson import ObjectId#type: ignore
+from bson.errors import InvalidId#type: ignore
 
 from contracts.models import ContractDocument, ContractStatus, ExtractedContractFields
 from contracts.utils import save_upload, extract_text_from_file
 from contracts.chains import extract_contract_fields
-# from contracts.stats import get_contract_stats
 from contracts.notifications import notify_extraction_issue, notify_contract_updated, diff_extracted_fields
 
 from retrieval.loaders import load_document
@@ -40,6 +40,21 @@ def _ingest_to_vectorstore(file_path: str, contract_id: str) -> None:
         store_chunks(chunks, contract_id)
     except Exception as e:
         print(f"[vectorstore] failed to ingest contract {contract_id}: {e}")
+
+
+async def _find_existing_duplicate(db, user_id: str, this_oid, vendor_name: str | None):
+    """Same user + same vendor name (case-insensitive) = same contract."""
+    vendor = (vendor_name or "").strip()
+    if not vendor:
+        return None
+    return await db.contracts.find_one(
+        {
+            "uploaded_by": user_id,
+            "_id": {"$ne": this_oid},
+            "extracted.vendor_name": {"$regex": f"^{re.escape(vendor)}$", "$options": "i"},
+        },
+        sort=[("_id", 1)],  # oldest one is the "original"
+    )
 
 
 @router.post("/upload")
@@ -127,12 +142,83 @@ async def extract_contract(
         )
         raise HTTPException(status_code=500, detail=f"Extraction failed: {e}")
 
+
+    # ---- Duplicate check: same vendor already uploaded by this user? ----
+    # If so, don't keep two records. Fold this upload into the OLD record
+    # (keeping the old version in previous_versions), email what changed,
+    # and delete the new one.
+    new_fields = extracted.model_dump(mode="json")
+    original = await _find_existing_duplicate(
+        db, str(current_user["_id"]), ObjectId(contract_id), extracted.vendor_name
+    )
+    if original:
+        original_id = str(original["_id"])
+        diff_lines = diff_extracted_fields(original.get("extracted"), new_fields)
+
+        previous_versions = original.get("previous_versions", [])
+        previous_versions.append(
+            {
+                "filename": original.get("filename"),
+                "file_path": original.get("file_path"),
+                "extracted": original.get("extracted"),
+                "replaced_at": datetime.utcnow().isoformat(),
+            }
+        )
+        await db.contracts.update_one(
+            {"_id": original["_id"]},
+            {
+                "$set": {
+                    "filename": contract["filename"],
+                    "file_path": contract["file_path"],
+                    "raw_text": contract["raw_text"],
+                    "status": ContractStatus.EXTRACTED,
+                    "extracted": new_fields,
+                    "extracted_at": datetime.utcnow().isoformat(),
+                    "extraction_error": None,
+                    # old flag state described the old content; let the DAG re-evaluate
+                    "flagged": False,
+                    "flag_reason": None,
+                    "flagged_at": None,
+                    "alert_sent": False,
+                    "previous_versions": previous_versions,
+                }
+            },
+        )
+        await db.contracts.delete_one({"_id": ObjectId(contract_id)})
+
+        # Vector index: drop the old content + the duplicate's chunks, re-index under the original id
+        for cid in (original_id, contract_id):
+            try:
+                delete_contract_chunks(cid)
+            except Exception as e:
+                print(f"[vectorstore] failed to clear chunks for {cid}: {e}")
+        background_tasks.add_task(_ingest_to_vectorstore, contract["file_path"], original_id)
+
+        old_path = original.get("file_path")
+        if old_path and old_path != contract["file_path"]:
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
+
+        background_tasks.add_task(
+            notify_contract_updated, current_user["email"], contract["filename"], diff_lines
+        )
+        return {
+            "contract_id": original_id,
+            "merged_into_existing": True,
+            "message": "This vendor already had a contract, so it was updated instead of duplicated.",
+            "changes": diff_lines,
+            "status": ContractStatus.EXTRACTED,
+            "extracted": extracted,
+        }
+
     await db.contracts.update_one(
         {"_id": ObjectId(contract_id)},
         {
             "$set": {
                 "status": ContractStatus.EXTRACTED,
-                "extracted": extracted.model_dump(mode="json"),
+                "extracted": new_fields,
                 "extracted_at": datetime.utcnow().isoformat(),
             }
         },
