@@ -6,10 +6,10 @@ import os
 from typing import cast
 
 from app import uploaded_file
-from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_groq import ChatGroq# type: ignore
+from langchain_core.prompts import ChatPromptTemplate# type: ignore
 from contracts.models import ExtractedContractFields
-from dotenv import load_dotenv
+from dotenv import load_dotenv# type: ignore
 load_dotenv()
 
 model = ChatGroq(model="openai/gpt-oss-120b")

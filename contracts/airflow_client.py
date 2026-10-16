@@ -1,5 +1,5 @@
 import os
-import requests
+import requests # type: ignore
 
 def trigger_renewal_check(contract_id: str) -> None:
     url = os.getenv("AIRFLOW_API_URL", "http://airflow:8080")

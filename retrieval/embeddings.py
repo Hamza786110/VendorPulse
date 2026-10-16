@@ -1,7 +1,7 @@
 import os
-from dotenv import load_dotenv
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_core.documents import Document
+from dotenv import load_dotenv# type: ignore
+from langchain_google_genai import GoogleGenerativeAIEmbeddings# type: ignore
+from langchain_core.documents import Document# type: ignore
 load_dotenv()
 
 def get_embedding_model() -> GoogleGenerativeAIEmbeddings:

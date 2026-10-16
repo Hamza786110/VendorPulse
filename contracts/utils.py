@@ -9,9 +9,9 @@ import os
 import uuid
 from pathlib import Path
 
-from fastapi import UploadFile
-import pdfplumber
-import docx  # python-docx
+from fastapi import UploadFile # type: ignore
+import pdfplumber #type: ignore
+import docx  # python-docx  # type: ignore
 
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

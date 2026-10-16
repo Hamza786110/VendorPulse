@@ -1,8 +1,8 @@
-from langchain_core.documents import Document
+from langchain_core.documents import Document # type: ignore
 import os
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
-from langchain_experimental.text_splitter import SemanticChunker
-from dotenv import load_dotenv
+from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI# type: ignore
+from langchain_experimental.text_splitter import SemanticChunker# type: ignore
+from dotenv import load_dotenv# type: ignore
 load_dotenv()
 
 def get_chat_model() -> ChatGoogleGenerativeAI:

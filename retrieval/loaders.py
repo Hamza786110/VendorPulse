@@ -1,6 +1,6 @@
 from pathlib import Path
-from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
-from langchain_core.documents import Document
+from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader# type: ignore
+from langchain_core.documents import Document# type: ignore
 
 
 def load_document(file_path: str) -> list[Document]:

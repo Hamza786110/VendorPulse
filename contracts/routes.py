@@ -9,6 +9,7 @@ from bson.errors import InvalidId  # type: ignore
 from contracts.models import ContractDocument, ContractStatus, ExtractedContractFields
 from contracts.utils import save_upload, extract_text_from_file
 from contracts.chains import extract_contract_fields
+from contracts.airflow_client import trigger_renewal_check
 from contracts.notifications import notify_extraction_issue, notify_contract_updated, diff_extracted_fields
 from retrieval.loaders import load_document
 from retrieval.chunking import chunk_documents
@@ -114,7 +115,7 @@ async def contract_stats(
     db=Depends(get_db),
 ):
     # Dashboard numbers: how many contracts the user has uploaded, broken
-    # down by processing status, plus how many are currently flagged.
+    # down by processing status.
     return await get_contract_stats(db, str(current_user["_id"]))
 
 
@@ -178,11 +179,7 @@ async def extract_contract(
                     "extracted": new_fields,
                     "extracted_at": datetime.utcnow().isoformat(),
                     "extraction_error": None,
-                    # old flag state described the old content; let the DAG re-evaluate
-                    "flagged": False,
-                    "flag_reason": None,
-                    "flagged_at": None,
-                    "alert_sent": False,
+                    # old reminder state described the old content; let the DAG re-evaluate
                     "renewal_reminder_sent": False,
                     "renewal_reminder_sent_at": None,
                     "previous_versions": previous_versions,
@@ -209,6 +206,7 @@ async def extract_contract(
         background_tasks.add_task(
             notify_contract_updated, current_user["email"], contract["filename"], diff_lines
         )
+        background_tasks.add_task(trigger_renewal_check, original_id)
 
         return {
             "contract_id": original_id,
@@ -238,6 +236,8 @@ async def extract_contract(
             extracted.confidence_notes,
             False,
         )
+
+    background_tasks.add_task(trigger_renewal_check, contract_id)
 
     return {"contract_id": contract_id, "status": ContractStatus.EXTRACTED, "extracted": extracted}
 
@@ -310,9 +310,9 @@ async def replace_contract(
         }
     )
 
-    # Reset flagged/alert_sent: the old flag state was about the old
-    # content. The next DAG run should re-evaluate the new content fresh,
-    # not stay silent because the old version already triggered an alert.
+    # Reset renewal_reminder_sent: the old reminder was about the old
+    # content. The DAG should re-evaluate the new content fresh, not stay
+    # silent because the old version already triggered a reminder.
     await db.contracts.update_one(
         {"_id": ObjectId(contract_id)},
         {
@@ -323,10 +323,6 @@ async def replace_contract(
                 "status": ContractStatus.EXTRACTING,
                 "extracted": None,
                 "extraction_error": None,
-                "flagged": False,
-                "flag_reason": None,
-                "flagged_at": None,
-                "alert_sent": False,
                 "renewal_reminder_sent": False,
                 "renewal_reminder_sent_at": None,
                 "previous_versions": previous_versions,
@@ -369,6 +365,7 @@ async def replace_contract(
     background_tasks.add_task(
         notify_contract_updated, current_user["email"], file.filename, diff_lines
     )
+    background_tasks.add_task(trigger_renewal_check, contract_id)
 
     if extracted.confidence_notes:
         background_tasks.add_task(
