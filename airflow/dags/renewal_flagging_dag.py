@@ -5,7 +5,7 @@ from bson import ObjectId # type: ignore
 from bson.errors import InvalidId # type: ignore
 from pymongo import MongoClient # type: ignore
 from airflow.decorators import dag, task  # type: ignore
-
+from contracts.notifications import notify_renewal_reminder
 # Flag a contract when its renewal date OR its cancellation deadline is
 # within this many days. Override with FLAG_THRESHOLD_DAYS in .env.
 FLAG_THRESHOLD_DAYS = int(os.environ.get("FLAG_THRESHOLD_DAYS", 20))
@@ -66,7 +66,6 @@ def renewal_flagging_dag():
     def flag_upcoming_renewals():
         # Imported inside the task so DAG parsing stays light. These come from
         # the ./auth and ./contracts folders mounted in docker-compose.yml.
-        from contracts.notifications import notify_contract_flagged
 
         client = MongoClient(os.environ["MONGODB_URI"])
         db = client[os.environ.get("MONGODB_DB_NAME", "contractguard")]
