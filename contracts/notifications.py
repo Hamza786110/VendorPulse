@@ -31,6 +31,27 @@ def notify_contract_flagged(to_email: str, filename: str, flag_reason: str) -> b
     html = f"<p>Your contract <b>{filename}</b> has been flagged:</p><p>{flag_reason}</p>"
     return _safe_send(to_email, subject, plain, html)
 
+def notify_renewal_reminder(
+    to_email: str,
+    filename: str,
+    message: str,
+) -> bool:
+    subject = f"VendorPulse: upcoming renewal for {filename}"
+
+    plain = (
+        f"Reminder for your contract: {filename}\n\n"
+        f"{message}\n\n"
+        "Log in to VendorPulse to review your contract."
+    )
+
+    html = (
+        f"<p>Reminder for your contract: <b>{filename}</b></p>"
+        f"<p>{message}</p>"
+        "<p>Log in to VendorPulse to review your contract.</p>"
+    )
+
+    return _safe_send(to_email, subject, plain, html)
+
 
 def notify_extraction_issue(to_email: str, filename: str, detail: str, failed: bool) -> bool:
     if failed:

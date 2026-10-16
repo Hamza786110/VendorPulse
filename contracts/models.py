@@ -67,6 +67,7 @@ class ContractDocument(BaseModel):
     flag_reason: Optional[str] = None
     flagged_at: Optional[datetime] = None
     alert_sent: bool = False
+    renewal_reminder_sent: bool = False
     previous_versions: list[dict] = Field(default_factory=list)
 
     class Config:

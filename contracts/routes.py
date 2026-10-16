@@ -1,19 +1,23 @@
 from datetime import datetime
 import os
 import re
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks #type: ignore
-from bson import ObjectId#type: ignore
-from bson.errors import InvalidId#type: ignore
+
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks  # type: ignore
+from bson import ObjectId  # type: ignore
+from bson.errors import InvalidId  # type: ignore
 
 from contracts.models import ContractDocument, ContractStatus, ExtractedContractFields
 from contracts.utils import save_upload, extract_text_from_file
 from contracts.chains import extract_contract_fields
 from contracts.notifications import notify_extraction_issue, notify_contract_updated, diff_extracted_fields
-
 from retrieval.loaders import load_document
 from retrieval.chunking import chunk_documents
-from retrieval.vectorstore import store_chunks, query_contract,delete_contract_chunks
+from retrieval.vectorstore import store_chunks, query_contract, delete_contract_chunks
 from auth.dependencies import get_current_user, get_db  # auth + db dependencies
+
+# NOTE: get_contract_stats is used in /stats but was never imported.
+# Add the correct import for your project, e.g.:
+# from contracts.stats import get_contract_stats
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
 
@@ -24,6 +28,7 @@ async def _get_owned_contract(db, contract_id: str, current_user) -> dict:
         oid = ObjectId(contract_id)
     except (InvalidId, TypeError):
         raise HTTPException(status_code=400, detail="Invalid contract id")
+
     contract = await db.contracts.find_one({"_id": oid})
     if not contract or contract.get("uploaded_by") != str(current_user["_id"]):
         raise HTTPException(status_code=404, detail="Contract not found")
@@ -31,9 +36,7 @@ async def _get_owned_contract(db, contract_id: str, current_user) -> dict:
 
 
 def _ingest_to_vectorstore(file_path: str, contract_id: str) -> None:
-    """
-    Runs after the upload response has already been sent.
-    """
+    """Runs after the upload response has already been sent."""
     try:
         docs = load_document(file_path)
         chunks = chunk_documents(docs)
@@ -47,6 +50,7 @@ async def _find_existing_duplicate(db, user_id: str, this_oid, vendor_name: str 
     vendor = (vendor_name or "").strip()
     if not vendor:
         return None
+
     return await db.contracts.find_one(
         {
             "uploaded_by": user_id,
@@ -66,7 +70,8 @@ async def upload_contract(
 ):
     try:
         # save_upload's returned id is just a filename-collision-avoidance
-        # rest of the API (and the vectorstore) key on.
+        # token; the Mongo _id below is what the rest of the API (and the
+        # vectorstore) key on.
         _file_uuid, file_path = await save_upload(file)
         raw_text = extract_text_from_file(file_path)
     except ValueError as e:
@@ -79,7 +84,6 @@ async def upload_contract(
         status=ContractStatus.UPLOADED,
         raw_text=raw_text,
     )
-
     result = await db.contracts.insert_one(doc.model_dump(exclude={"id"}, by_alias=True))
     contract_id = str(result.inserted_id)
 
@@ -109,17 +113,15 @@ async def contract_stats(
     current_user=Depends(get_current_user),
     db=Depends(get_db),
 ):
-
     # Dashboard numbers: how many contracts the user has uploaded, broken
-    # down by processing status, plus how many are currently flagged. so it's cheap and exact.
-
+    # down by processing status, plus how many are currently flagged.
     return await get_contract_stats(db, str(current_user["_id"]))
 
 
 @router.post("/{contract_id}/extract")
 async def extract_contract(
     contract_id: str,
-    background_tasks: BackgroundTasks ,
+    background_tasks: BackgroundTasks,
     current_user=Depends(get_current_user),
     db=Depends(get_db),
 ):
@@ -142,7 +144,6 @@ async def extract_contract(
         )
         raise HTTPException(status_code=500, detail=f"Extraction failed: {e}")
 
-
     # ---- Duplicate check: same vendor already uploaded by this user? ----
     # If so, don't keep two records. Fold this upload into the OLD record
     # (keeping the old version in previous_versions), email what changed,
@@ -151,6 +152,7 @@ async def extract_contract(
     original = await _find_existing_duplicate(
         db, str(current_user["_id"]), ObjectId(contract_id), extracted.vendor_name
     )
+
     if original:
         original_id = str(original["_id"])
         diff_lines = diff_extracted_fields(original.get("extracted"), new_fields)
@@ -164,6 +166,7 @@ async def extract_contract(
                 "replaced_at": datetime.utcnow().isoformat(),
             }
         )
+
         await db.contracts.update_one(
             {"_id": original["_id"]},
             {
@@ -180,6 +183,8 @@ async def extract_contract(
                     "flag_reason": None,
                     "flagged_at": None,
                     "alert_sent": False,
+                    "renewal_reminder_sent": False,
+                    "renewal_reminder_sent_at": None,
                     "previous_versions": previous_versions,
                 }
             },
@@ -204,6 +209,7 @@ async def extract_contract(
         background_tasks.add_task(
             notify_contract_updated, current_user["email"], contract["filename"], diff_lines
         )
+
         return {
             "contract_id": original_id,
             "merged_into_existing": True,
@@ -223,6 +229,7 @@ async def extract_contract(
             }
         },
     )
+
     if extracted.confidence_notes:
         background_tasks.add_task(
             notify_extraction_issue,
@@ -231,6 +238,7 @@ async def extract_contract(
             extracted.confidence_notes,
             False,
         )
+
     return {"contract_id": contract_id, "status": ContractStatus.EXTRACTED, "extracted": extracted}
 
 
@@ -241,7 +249,6 @@ async def get_contract(
     db=Depends(get_db),
 ):
     contract = await _get_owned_contract(db, contract_id, current_user)
-
     contract["_id"] = str(contract["_id"])
     return contract
 
@@ -261,9 +268,9 @@ async def ask_contract(
     await _get_owned_contract(db, contract_id, current_user)
 
     results = query_contract(contract_id, question)
-
     documents = results.get("documents", [[]])[0]
     distances = results.get("distances", [[]])[0]
+
     matches = [{"text": text, "distance": distance} for text, distance in zip(documents, distances)]
 
     if not matches:
@@ -275,8 +282,6 @@ async def ask_contract(
     return {"contract_id": contract_id, "question": question, "matches": matches}
 
 
-
-
 @router.post("/{contract_id}/replace")
 async def replace_contract(
     contract_id: str,
@@ -286,16 +291,15 @@ async def replace_contract(
     db=Depends(get_db),
 ):
     contract = await _get_owned_contract(db, contract_id, current_user)
- 
     old_file_path = contract.get("file_path")
     old_extracted = contract.get("extracted")
- 
+
     try:
         _file_uuid, new_file_path = await save_upload(file)
         raw_text = extract_text_from_file(new_file_path)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
- 
+
     previous_versions = contract.get("previous_versions", [])
     previous_versions.append(
         {
@@ -305,7 +309,7 @@ async def replace_contract(
             "replaced_at": datetime.utcnow().isoformat(),
         }
     )
- 
+
     # Reset flagged/alert_sent: the old flag state was about the old
     # content. The next DAG run should re-evaluate the new content fresh,
     # not stay silent because the old version already triggered an alert.
@@ -323,18 +327,21 @@ async def replace_contract(
                 "flag_reason": None,
                 "flagged_at": None,
                 "alert_sent": False,
+                "renewal_reminder_sent": False,
+                "renewal_reminder_sent_at": None,
                 "previous_versions": previous_versions,
             }
         },
     )
- 
+
     # Old vectorstore chunks belong to the old file's content
     try:
         delete_contract_chunks(contract_id)
     except Exception as e:
         print(f"[vectorstore] failed to clear old chunks for {contract_id}: {e}")
+
     background_tasks.add_task(_ingest_to_vectorstore, new_file_path, contract_id)
- 
+
     try:
         extracted: ExtractedContractFields = extract_contract_fields(raw_text)
     except Exception as e:
@@ -346,7 +353,7 @@ async def replace_contract(
             notify_extraction_issue, current_user["email"], file.filename, str(e), True
         )
         raise HTTPException(status_code=500, detail=f"Extraction failed on the updated file: {e}")
- 
+
     await db.contracts.update_one(
         {"_id": ObjectId(contract_id)},
         {
@@ -357,11 +364,12 @@ async def replace_contract(
             }
         },
     )
- 
+
     diff_lines = diff_extracted_fields(old_extracted, extracted.model_dump(mode="json"))
     background_tasks.add_task(
         notify_contract_updated, current_user["email"], file.filename, diff_lines
     )
+
     if extracted.confidence_notes:
         background_tasks.add_task(
             notify_extraction_issue,
@@ -370,7 +378,7 @@ async def replace_contract(
             extracted.confidence_notes,
             False,
         )
- 
+
     # Best-effort cleanup of the old file on disk. Not fatal if it fails —
     # the record itself is already fully switched over to the new file.
     if old_file_path and old_file_path != new_file_path:
@@ -378,7 +386,7 @@ async def replace_contract(
             os.remove(old_file_path)
         except OSError:
             pass
- 
+
     return {
         "contract_id": contract_id,
         "status": ContractStatus.EXTRACTED,

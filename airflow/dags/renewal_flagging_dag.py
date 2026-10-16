@@ -25,26 +25,25 @@ def _to_date(raw):
         return None
 
 
-def evaluate_contract(extracted: dict, today: date, threshold_days: int) -> list[str]:
-    """Pure function (easy to test): returns the list of reasons to flag, [] if none."""
+
+def evaluate_contract(extracted: dict,today: date) -> list[str]:
+
     renewal_date = _to_date(extracted.get("renewal_date"))
+
     if renewal_date is None:
         return []
 
-    threshold_date = today + timedelta(days=threshold_days)
-    reasons = []
+    days_left = (renewal_date - today).days
 
-    if today <= renewal_date <= threshold_date:
-        reasons.append(f"Renews in {(renewal_date - today).days} day(s) ({renewal_date})")
+    if days_left == 5:
+        return [
+            f"Your contract renews in 5 days "
+            f"on {renewal_date}. Review it and renew if needed."
+        ]
+    
 
-    window = extracted.get("cancellation_window_days")
-    if extracted.get("auto_renew") and window is not None:
-        deadline = renewal_date - timedelta(days=window)
-        if today <= deadline <= threshold_date:
-            reasons.append(
-                f"Cancellation window closes in {(deadline - today).days} day(s) ({deadline})"
-            )
-    return reasons
+    return []
+
 
 
 def _get_owner_email(db, uploaded_by: str):
@@ -78,43 +77,34 @@ def renewal_flagging_dag():
 
         for contract in contracts.find({"extracted.renewal_date": {"$ne": None}}):
             extracted = contract.get("extracted") or {}
+            message = evaluate_contract(extracted, today)
 
-            if _to_date(extracted.get("renewal_date")) is None:
-                print(f"Skipping {contract['_id']}: bad renewal_date {extracted.get('renewal_date')!r}")
-                skipped += 1
-                continue
-
-            reasons = evaluate_contract(extracted, today, FLAG_THRESHOLD_DAYS)
-
-            if reasons:
-                flag_reason = "; ".join(reasons)
-                contracts.update_one(
-                    {"_id": contract["_id"]},
-                    {"$set": {"flagged": True, "flag_reason": flag_reason,
-                              "flagged_at": datetime.utcnow()}},
+            if message and not contract.get("renewal_reminder_sent", False):
+                owner_email = _get_owner_email(
+                    db, contract.get("uploaded_by", "")
                 )
-                flagged += 1
 
-                # ONE email per contract: alert_sent is never reset by this DAG,
-                # so daily runs / retries can't send duplicates.
-                if not contract.get("alert_sent"):
-                    owner_email = _get_owner_email(db, contract.get("uploaded_by", ""))
-                    if not owner_email:
-                        print(f"No owner email for {contract['_id']}, not sending")
-                        continue
-                    if notify_contract_flagged(owner_email, contract.get("filename", "a contract"), flag_reason):
-                        contracts.update_one(
-                            {"_id": contract["_id"]},
-                            {"$set": {"alert_sent": True, "alert_sent_at": datetime.utcnow()}},
-                        )
-                        emails_sent += 1
-            else:
-                if contract.get("flagged"):
+                if not owner_email:
+                    print(f"No owner email for {contract['_id']}")
+                    continue
+
+                sent = notify_renewal_reminder(
+                    owner_email,
+                    contract.get("filename", "a contract"),
+                    message[0],
+                )
+
+                if sent:
                     contracts.update_one(
                         {"_id": contract["_id"]},
-                        {"$set": {"flagged": False, "flag_reason": None, "flagged_at": None}},
+                        {
+                            "$set": {
+                                "renewal_reminder_sent": True,
+                                "renewal_reminder_sent_at": datetime.utcnow(),
+                            }
+                        },
                     )
-                unflagged += 1
+
 
         print(f"Flagged: {flagged}, Not flagged: {unflagged}, Emails sent: {emails_sent}, Skipped: {skipped}")
 

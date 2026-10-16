@@ -2,9 +2,10 @@
 contracts/chains.py
 
 """
-
+import os
 from typing import cast
 
+from app import uploaded_file
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from contracts.models import ExtractedContractFields
@@ -44,14 +45,18 @@ def build_extraction_chain():
     return EXTRACTION_PROMPT | llm
 
 
+MAX_EXTRACTION_CHARS = int(
+    os.getenv("MAX_EXTRACTION_CHARS", "30000")
+)
+
+
 def extract_contract_fields(contract_text: str) -> ExtractedContractFields:
     """
     Convenience wrapper used by the route handler.
     Truncates very long contracts to keep within context/token limits —
     for a portfolio demo this is fine; production would chunk + summarize.
     """
-    MAX_CHARS = 15000
-    text = contract_text[:MAX_CHARS]
+    text = contract_text[:MAX_EXTRACTION_CHARS]
 
     chain = build_extraction_chain()
     result = chain.invoke({"contract_text": text})
