@@ -22,8 +22,15 @@ def _clean_metadata(meta: dict) -> dict:
     return cleaned
 
 
-def store_chunks(chunks: list[Document], contract_id: str) -> list[str]:
-    vectors = embed_chunks(chunks)  # <-- the embedding step, from the other file
+def store_chunks(
+    chunks: list[Document],
+    contract_id: str,
+    vectors: list[list[float]] | None = None,
+) -> list[str]:
+    # Pass `vectors` if you already embedded the chunks (so progress can be
+    # reported per stage); otherwise they are embedded here.
+    if vectors is None:
+        vectors = embed_chunks(chunks)
     texts = [c.page_content for c in chunks]
     ids=[]
     for i in range(len(chunks)):

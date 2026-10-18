@@ -5,7 +5,6 @@ contracts/chains.py
 import os
 from typing import cast
 
-from app import uploaded_file
 from langchain_groq import ChatGroq# type: ignore
 from langchain_core.prompts import ChatPromptTemplate# type: ignore
 from contracts.models import ExtractedContractFields

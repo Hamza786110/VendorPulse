@@ -81,5 +81,3 @@ for doc_text, dist in zip(results["documents"][0], results["distances"][0]):
        print(f"Match (distance={dist:.4f}):", doc_text[:200])
        print()
 
-
-d

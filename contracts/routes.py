@@ -16,9 +16,7 @@ from retrieval.chunking import chunk_documents
 from retrieval.vectorstore import store_chunks, query_contract, delete_contract_chunks
 from auth.dependencies import get_current_user, get_db  # auth + db dependencies
 
-# NOTE: get_contract_stats is used in /stats but was never imported.
-# Add the correct import for your project, e.g.:
-# from contracts.stats import get_contract_stats
+from contracts.stats import get_contract_stats
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
 
@@ -117,7 +115,23 @@ async def contract_stats(
     # Dashboard numbers: how many contracts the user has uploaded, broken
     # down by processing status.
     return await get_contract_stats(db, str(current_user["_id"]))
-
+    
+@router.get("/{contract_id}/rag-status")
+async def rag_status(
+    contract_id: str,
+    current_user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Indexing progress for one contract; the Streamlit upload screen polls this."""
+    contract = await _get_owned_contract(db, contract_id, current_user)
+    rag = contract.get("rag") or {}
+    return {
+        "contract_id": contract_id,
+        "stage": rag.get("stage", "queued"),
+        "chunks": rag.get("chunks"),
+        "dim": rag.get("dim"),
+        "error": rag.get("error"),
+    }
 
 @router.post("/{contract_id}/extract")
 async def extract_contract(

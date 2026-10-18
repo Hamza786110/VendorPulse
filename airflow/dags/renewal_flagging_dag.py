@@ -58,6 +58,7 @@ def _get_owner_email(db, uploaded_by: str):
     schedule="@daily",
     start_date=datetime(2026, 1, 1),
     catchup=False,
+    default_args={"retries": 3, "retry_delay": 120},  # retry_delay in seconds; covers DNS/network blips
     tags=["vendorpulse"],
 )
 def renewal_flagging_dag():

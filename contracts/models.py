@@ -68,6 +68,7 @@ class ContractDocument(BaseModel):
     flagged_at: Optional[datetime] = None
     alert_sent: bool = False
     renewal_reminder_sent: bool = False
+    rag: Optional[dict] = None  # indexing progress: stage, chunks, dim, error
     previous_versions: list[dict] = Field(default_factory=list)
 
     class Config:
