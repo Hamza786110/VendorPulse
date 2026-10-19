@@ -201,7 +201,18 @@ with st.sidebar:
         st.session_state.token = None
         st.session_state.user_email = None
         st.session_state.full_name = None
+        st.session_state.pop("chat_messages", None)
+        st.session_state.pop("chat_history_owner", None)
         st.rerun()
+
+    st.divider()
+    page = st.radio("Go to", ["Upload & Extract", "Chatbot"], key="page")
+
+if page == "Chatbot":
+    from chat_ui import render_chat
+
+    render_chat(api, headers, safe_json, error_detail)
+    st.stop()
 
 st.title("VendorPulse")
 st.caption("Upload a vendor contract and let Groq pull out the key renewal terms.")
