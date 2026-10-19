@@ -1,6 +1,6 @@
 import os
 from contextlib import asynccontextmanager
-
+from contracts.chatbot_routes import router as chatbot_router
 from dotenv import load_dotenv
 load_dotenv()
 from fastapi import FastAPI
@@ -23,6 +23,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ContractGuard API", lifespan=lifespan)
+app.include_router(chatbot_router) 
 app.include_router(contracts_router)
 app.include_router(auth_router)
 @app.get("/")

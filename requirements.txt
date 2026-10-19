@@ -25,3 +25,4 @@ docx2txt
 mailtrap
 streamlit
 requests
+pytest
