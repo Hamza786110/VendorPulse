@@ -35,7 +35,7 @@ def evaluate_contract(extracted: dict,today: date) -> list[str]:
 
     days_left = (renewal_date - today).days
 
-    if days_left == 5:
+    if 0<=days_left<=5:
         return [
             f"Your contract renews in 5 days "
             f"on {renewal_date}. Review it and renew if needed."

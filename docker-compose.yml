@@ -17,7 +17,7 @@ services:
   airflow:
     build: ./airflow
     container_name: contractguard-airflow
-    command: bash -c "rm -f /opt/airflow/airflow-webserver.pid /opt/airflow/airflow-webserver-monitor.pid && airflow standalone"
+    command:  bash -c "rm -f /opt/airflow/airflow-webserver.pid /opt/airflow/airflow-webserver-monitor.pid && airflow db migrate && (airflow users create --username vp_api --password \"$$AIRFLOW_API_PASSWORD\" --firstname v --lastname p --role Admin --email a@a.com || true) && exec airflow standalone""
     ports:
       - "8080:8080"
     env_file:
