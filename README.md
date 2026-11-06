@@ -1,92 +1,244 @@
 # VendorPulse (ContractGuard)
-
+ 
+> Upload a vendor contract. Get its renewal terms extracted automatically, get emailed before it renews, and ask questions about your contracts in plain English.
+ 
 **Repo:** https://github.com/Hamza786110/VendorPulse
-
-A vendor-contract renewal tracker: upload a contract, get its renewal date, auto-renew clause, price, and cancellation window pulled out automatically, get flagged and emailed before you accidentally get auto-renewed or miss a cancellation window.
-
+ 
 ---
-
-## 1. The problem
-
-Businesses (and individuals) sign vendor contracts — SaaS subscriptions, service agreements, leases — that quietly auto-renew unless someone remembers to cancel within a specific notice window before the renewal date. Nobody tracks this centrally. Contracts sit as PDFs in someone's inbox or drive, the cancellation window comes and goes unnoticed, and the business ends up paying for another term (or a full year) of something it meant to cancel.
-
-The core failure isn't a lack of contracts — it's a lack of *visibility*. There's no single place that says "these 3 contracts need a decision in the next 30 days."
-
-## 2. The solution
-
+ 
+## The problem
+ 
+Businesses sign vendor contracts (SaaS subscriptions, service agreements, leases) that quietly auto-renew unless someone remembers to act before a deadline. Contracts sit as PDFs in inboxes and drives, nobody tracks them in one place, and the company pays for another term it meant to cancel.
+ 
+The failure isn't a lack of contracts, it's a lack of **visibility**. There's no single place that says "these contracts need a decision soon."
+ 
+## The solution
+ 
 VendorPulse is a small SaaS tool that:
-
-1. Lets a user upload a contract file (PDF/DOCX).
-2. Uses an LLM to extract the terms that actually matter for renewal decisions: vendor name, renewal date, auto-renew (yes/no), cancellation notice window (days), price, billing frequency.
-3. Runs a nightly check across every stored contract and flags any that are approaching their renewal date or their cancellation deadline.
-4. Emails the user when a contract gets flagged, when extraction fails or is low-confidence, or when they update a contract and something changed.
-5. Lets the user semantically search the actual text of a contract, not just its extracted fields (e.g. "does this mention a data-retention clause?").
-
-## 3. Tech stack
-
-| Layer | Choice | Why |
+ 
+1. Lets a user upload a contract (PDF or DOCX).
+2. Uses an LLM to extract the terms that matter: vendor name, renewal date, auto-renew clause, cancellation notice window, price, currency and billing frequency.
+3. Indexes the contract text so it can be searched semantically.
+4. Triggers an Airflow job that emails the owner **5 days before the renewal date**. A nightly run also catches anything missed.
+5. Emails the user when extraction fails or comes back low-confidence, and when a replaced contract changes the extracted terms.
+6. Offers a per-user chatbot that answers questions about the user's own contracts, grounded in MongoDB data rather than guesses.
+---
+ 
+## Architecture
+ 
+```
+                 ┌────────────────────┐
+                 │  Streamlit UI      │  app.py (auth, upload, dashboard, detail)
+                 │  + chat_ui.py      │  chat screen
+                 └─────────┬──────────┘
+                           │ REST + JWT
+                 ┌─────────▼──────────┐        ┌────────────────────┐
+                 │  FastAPI backend   │───────▶│  MongoDB Atlas     │
+                 │  auth / contracts  │        │  users, contracts, │
+                 │  / chatbot         │        │  chat_messages     │
+                 └───┬─────────┬──────┘        └─────────▲──────────┘
+                     │         │                         │
+        embeds chunks│         │ trigger DAG run         │ pymongo
+                     ▼         ▼                         │
+            ┌─────────────┐  ┌────────────────────┐      │
+            │  ChromaDB   │  │  Apache Airflow    │──────┘
+            │ vectorstore │  │  renewal_flagging  │──▶ SMTP email
+            └─────────────┘  └────────────────────┘
+```
+ 
+**Key design choices**
+ 
+- MongoDB is the source of truth for structured fields. ChromaDB holds only text chunks for semantic search.
+- FastAPI uses Motor (async), Airflow uses pymongo (sync). Both are intentional.
+- The Airflow DAG reuses the backend's email code by mounting `./auth` and `./contracts` into the Airflow container read-only.
+- The chatbot's `user_id` always comes from the JWT, never from the request body.
+---
+ 
+## Tech stack
+ 
+| Layer | Choice |
+|---|---|
+| API | FastAPI, Uvicorn |
+| Auth | JWT (`python-jose`), `passlib` + `bcrypt`, email-based password reset |
+| Database | MongoDB Atlas via Motor (API) and pymongo (Airflow) |
+| Field extraction | Groq via `langchain-groq`, structured output into a Pydantic schema |
+| Document loading | `pdfplumber`, `PyPDFLoader`, `python-docx` / `docx2txt` |
+| Semantic search | LangChain `SemanticChunker`, Google GenAI embeddings, ChromaDB (persistent local client) |
+| Chatbot | LangChain `create_agent` (LangGraph-backed ReAct agent) on Groq, with MongoDB-backed per-user memory |
+| Scheduling / automation | Apache Airflow 2.10 (standalone, SequentialExecutor) |
+| Email | SMTP through a shared `send_email()` helper |
+| Frontend | Streamlit |
+| Packaging | Docker + Docker Compose, `uv` (Python 3.13) |
+ 
+---
+ 
+## Features
+ 
+### Authentication (`auth/`)
+Sign up, sign in, `GET /auth/me`, forgot-password and reset-password flow over SMTP. All contract and chatbot routes are user-scoped via the JWT.
+ 
+### Contracts (`contracts/routes.py`)
+ 
+| Method | Endpoint | Purpose |
 |---|---|---|
-| API | FastAPI | async, fast to build endpoints on |
-| Auth | Custom JWT (`python-jose`), `passlib`/`bcrypt` for hashing | signup/signin/forgot-password, email-based |
-| Database | MongoDB (`motor`/`pymongo`) | contracts + users, schemaless fit for evolving extracted-field shape |
-| Field extraction | Groq (via `langchain-groq`) + LangChain structured output (`PydanticOutputParser`) | fast, cheap LLM inference against a fixed Pydantic schema (`ExtractedContractFields`) |
-| Semantic search | ChromaDB + Google `text-embedding` (`langchain-google-genai`) | local vector store, no extra infra to run |
-| Chunking | LangChain's semantic chunker (`langchain_experimental`) | splits contract text into coherent passages before embedding |
-| Scheduled jobs | Apache Airflow (`@dag`/`@task` decorators) | nightly scan for upcoming renewals/cancellation windows |
-| Email | SMTP via a shared `send_email()` helper (originally built for password reset) | renewal alerts, extraction-issue alerts, contract-update alerts |
-| Demo UI | Streamlit | fastest way to exercise the API end to end while the real frontend is undecided |
-| Containers | Docker Compose (`contractguard-backend`, `contractguard-airflow`) | run API + scheduler together locally |
-
-## 4. How it's built — the pieces
-
-### Data model (`contracts/models.py`)
-`ContractDocument`: filename, file_path, uploaded_by, status (`uploaded` → `extracting` → `extracted`/`extraction_failed`), raw_text, extracted fields, flagged/flag_reason/flagged_at, alert_sent (dedupe flag), previous_versions (history kept when a file is replaced).
-
-`ExtractedContractFields`: renewal_date, auto_renew, cancellation_window_days, pricing_amount/currency/frequency, vendor_name, confidence_notes (the model's own note when it's unsure about a field).
-
-### Upload & extract (`contracts/routes.py`)
-- `POST /contracts/upload` — saves the file, extracts raw text (pdfplumber/python-docx), stores the record, and schedules chunk-embed-store into Chroma as a background task (keyed on the Mongo `_id`, not the throwaway upload uuid).
-- `POST /contracts/{id}/extract` — runs the Groq extraction chain on the stored raw text. Alerts by email if extraction fails outright, or if the model's own `confidence_notes` came back non-empty.
-- `GET /contracts/{id}` / `GET /contracts` — fetch one or list the user's contracts.
-- `GET /contracts/{id}/ask?question=...` — semantic search over that one contract's stored chunks, scoped so a user can't query someone else's contract.
-- `POST /contracts/{id}/replace` — the "I have an updated version of this contract" flow: re-extracts the new file, diffs old vs new extracted fields, re-indexes the vectorstore (clearing stale chunks first), emails a summary of what changed, and archives the old version rather than discarding it.
-- `GET /contracts/stats` — dashboard counts (total/extracted/extracting/failed/flagged), plain DB counts with no LLM involved.
-
-### Retrieval pipeline (`retrieval/`)
-`loaders.py` → `chunking.py` → `embeddings.py` → `vectorstore.py`: load a file into LangChain `Document`s, semantically chunk it, embed the chunks, upsert into Chroma tagged with the contract's id. `store_chunks`, `query_contract`, and `delete_contract_chunks` are the three entry points the rest of the app calls.
-
-### Alerts (`contracts/notifications.py`)
-Three email types, all best-effort (a failed/unconfigured SMTP logs and returns, never crashes the caller):
-- `notify_contract_flagged` — renewal/cancellation window approaching.
-- `notify_extraction_issue` — extraction failed, or succeeded with something the model wants double-checked.
-- `notify_contract_updated` — a replaced file's extracted fields changed, with a plain-language diff (`diff_extracted_fields`).
-
-### Nightly renewal check (`airflow/dags/renewal_flagging_dag.py`)
-Runs daily. Scans every contract with a known renewal date, flags anything renewing or hitting its cancellation deadline within 30 days, and emails the owner — but only **once per flagged streak** (an `alert_sent` flag prevents re-emailing every night for a contract that's already been flagged). Unflagging (contract renewed/resolved) resets that dedupe flag so a future re-flag alerts again.
-
-### Demo UI (`app.py`, Streamlit)
-Two tabs: Upload & Extract (the original demo flow), and Dashboard (the `/stats` numbers as metric tiles). A third tab wired up a chatbot (LangGraph tool-calling agent answering "how many contracts do I have" type questions) but it was pulled back out after causing issues — the module (`contracts/chatbot.py`) is still on disk, just unwired.
-
-## 5. What's done so far
-
-- ✅ Auth: signup/signin/forgot-password, JWT-based
-- ✅ Upload → text extraction → Groq structured extraction
-- ✅ MongoDB storage of contracts + extracted fields
-- ✅ Vectorstore pipeline built and **wired into the live upload flow** (originally only ran via a standalone test script)
-- ✅ Semantic search endpoint (`/ask`)
-- ✅ Nightly Airflow DAG flagging contracts nearing renewal/cancellation
-- ✅ Email alerts: renewal flagged (deduped), extraction failed, low-confidence extraction, contract updated
-- ✅ Replace-a-contract flow with field diffing and version history
-- ✅ Dashboard stats endpoint + Streamlit tab
-- ⏸️ Chatbot — built, then disabled due to issues; not currently wired in
-- ⚠️ Known issue: the DAG file on GitHub currently has a broken/incomplete merge of the alert-dedupe logic (missing `get_owner_email` helper and its imports) — needs a fix pass before the nightly alert will actually run without crashing
-- ⚠️ `requirements.txt` is missing some deps the auth module actually needs (`python-jose`, `passlib`, `bcrypt`, `python-multipart`, `email-validator`) — repo won't boot cleanly until those are added
-
-## 6. What's next
-
-- Finish syncing `contracts/routes.py` on GitHub with the alert/replace/stats wiring (in progress as of this doc)
-- Fix the DAG's broken alert-dedupe merge
-- Add the missing auth dependencies to `requirements.txt`
-- Decide on the real frontend (Streamlit is a demo, not the product) — Vercel was the original plan
-- Revisit the chatbot once the underlying issues are understood
-- Longer term, from the original product concept: a proper alerts view in the UI (not just email), and pipeline health monitoring for the Airflow side
+| POST | `/contracts/upload` | Save file, extract raw text, store record, index chunks in the background |
+| POST | `/contracts/{id}/extract` | Run Groq structured extraction on the stored text |
+| GET | `/contracts` | List the current user's contracts |
+| GET | `/contracts/{id}` | One contract with extracted fields |
+| GET | `/contracts/{id}/rag-status` | Indexing progress for the live pipeline checklist |
+| GET | `/contracts/{id}/ask?question=...` | Semantic search over that contract's chunks |
+| POST | `/contracts/{id}/replace` | Upload an updated version: re-extract, diff old vs new fields, re-index, email a change summary, keep the old version in `previous_versions` |
+| GET | `/contracts/stats` | Dashboard counts (plain DB counts, no LLM) |
+ 
+Extracted fields (`ExtractedContractFields`): `renewal_date`, `auto_renew`, `cancellation_window_days`, `pricing_amount`, `pricing_currency`, `pricing_frequency`, `vendor_name`, `confidence_notes`.
+ 
+### Renewal reminders (`airflow/dags/renewal_flagging_dag.py`)
+- `renewal_flagging_dag` runs `@daily`.
+- Extraction, replacement and similar events also trigger a run through the Airflow REST API (`contracts/airflow_client.py`), so new uploads are checked without waiting for the schedule.
+- A contract whose renewal date is within 5 days gets one reminder email to its owner.
+- `renewal_reminder_sent` prevents re-emailing every night.
+### Email alerts (`contracts/notifications.py`)
+Best-effort. A failed or unconfigured SMTP logs and returns, and never crashes the caller.
+- Renewal reminder
+- Extraction failed or low-confidence
+- Contract updated (plain-language field diff)
+### Chatbot (`contracts/chatbot*.py`)
+A ReAct agent that can only read data through read-only, user-scoped tools:
+ 
+`contract_stats`, `list_contracts`, `get_contract_details`, `upcoming_renewals`, `list_uploads`, `reminder_status`, `search_contract_content`
+ 
+- Counts, dates and prices are computed in code, not by the LLM.
+- Missing fields come back as `"not extracted"`, so the model can't fill gaps itself.
+- Only the question and final answer are stored (collection `chat_messages`). Tool results are re-fetched fresh each time, and only a short history window is loaded.
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/contracts/chatbot` | Ask a question |
+| GET | `/contracts/chatbot/history` | Load recent messages |
+| DELETE | `/contracts/chatbot/history` | Clear chat |
+ 
+### Streamlit UI
+- `app.py`: sign in / sign up / forgot password, upload and extract with a live pipeline checklist, dashboard with KPIs and contract list, contract detail view.
+- `chat_ui.py`: the chat screen for the assistant.
+---
+ 
+## Project structure
+ 
+```
+.
+├── main.py                    # FastAPI app, Mongo lifespan, routers
+├── app.py                     # Streamlit frontend
+├── chat_ui.py                 # Streamlit chat screen
+├── auth/                      # signup/signin/reset, JWT, SMTP helper
+├── contracts/
+│   ├── routes.py              # upload, extract, ask, replace, stats
+│   ├── chains.py              # Groq extraction chain
+│   ├── models.py              # Pydantic models / schema
+│   ├── notifications.py       # email alerts + field diff
+│   ├── airflow_client.py      # triggers DAG runs
+│   ├── stats.py               # dashboard counts
+│   └── chatbot*.py            # routes, tools, memory, agent
+├── retrieval/                 # loaders, chunking, embeddings, vectorstore
+├── airflow/
+│   ├── Dockerfile
+│   └── dags/renewal_flagging_dag.py
+├── scripts/                   # smoke_test.py, chatbot tests
+├── docker-compose.yml         # backend + airflow
+├── Dockerfile
+└── pyproject.toml / uv.lock
+```
+ 
+---
+ 
+## Getting started
+ 
+### Prerequisites
+- Docker Desktop with Docker Compose
+- [`uv`](https://docs.astral.sh/uv/) and Python 3.13 (for running Streamlit locally)
+- A MongoDB Atlas cluster (free M0 works)
+- A Groq API key and a Google AI Studio API key
+- SMTP credentials (for example a Gmail App Password)
+### 1. Clone and configure
+ 
+```bash
+git clone https://github.com/Hamza786110/VendorPulse.git
+cd VendorPulse
+```
+ 
+Create a `.env` file in the project root:
+ 
+```env
+# Database
+MONGODB_URI=mongodb+srv://<user>:<pass>@<cluster>/...
+MONGODB_DB_NAME=contractguard
+ 
+# Auth
+JWT_SECRET_KEY=change-me
+ 
+# LLM / embeddings
+GROQ_API_KEY=...
+GOOGLE_API_KEY=...
+# CHATBOT_MODEL=...              # optional override
+# CHATBOT_REASONING_EFFORT=none  # optional
+# MAX_EXTRACTION_CHARS=...       # optional
+ 
+# Email (SMTP)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=...
+SMTP_PASSWORD=...
+SMTP_FROM_EMAIL=...
+FRONTEND_RESET_URL=http://localhost:8501
+ 
+# Airflow
+AIRFLOW_API_USER=vp_api
+AIRFLOW_API_PASSWORD=change-me
+```
+ 
+### 2. Start the backend and Airflow
+ 
+```bash
+docker compose up --build
+```
+ 
+| Service | URL |
+|---|---|
+| FastAPI backend (container `contractguard-backend`) | http://localhost:8001 (docs at `/docs`) |
+| Airflow (container `contractguard-airflow`) | http://localhost:8080 |
+ 
+The backend is mapped to host port **8001** to avoid colliding with a local `uvicorn` on 8000. Airflow is resource-heavy, so give Docker Desktop enough CPU and RAM.
+ 
+### 3. Run the frontend
+ 
+```bash
+uv sync
+uv run streamlit run app.py
+```
+ 
+The UI talks to `API_BASE_URL` (default `http://localhost:8001`).
+ 
+### 4. Smoke test (optional)
+ 
+With `docker compose up` running:
+ 
+```bash
+TEST_EMAIL=you@example.com python scripts/smoke_test.py path/to/contract.pdf
+```
+ 
+It walks through signup, upload, indexing, extraction, the Airflow run, a semantic question and stats. Use your own inbox for `TEST_EMAIL`, since the app sends real emails.
+ 
+---
+ 
+## Known limitations
+ 
+- Semantic chunking works well on prose but can fragment tables and structured sections into weak chunks, so retrieval on those parts may be poor.
+- Gmail SMTP is fine for development, but reset emails tend to land in spam. A transactional provider (Postmark, SendGrid) is the production path.
+- The password-reset link points to `localhost` by default, which doesn't work across devices without a LAN IP or tunnel.
+- The `chroma_db/` folder and a sample uploaded PDF are committed to the repo. They should be gitignored.
+- Next.js frontend and Render/Vercel deployment are planned but not done.
+## Roadmap
+ 
+- Deploy backend and Airflow (Render) and decide on the long-term frontend
+- Production email delivery
+- In-app alerts view alongside email
+- Retrieval quality improvements for tabular contract content
+---
